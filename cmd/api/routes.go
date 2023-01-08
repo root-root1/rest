@@ -15,7 +15,8 @@ func (app *Application) routes() http.Handler {
 	router.HandlerFunc(http.MethodPost, "/api/v1/movie", app.createMovieHandler)
 	router.HandlerFunc(http.MethodGet, "/api/v1/movie/:id", app.getMovieById)
 	router.HandlerFunc(http.MethodPatch, "/api/v1/movie/:id", app.UpdateMovie)
-	router.HandlerFunc(http.MethodDelete, "/api/v1/delete/:id", app.deleteMovie)
+	router.HandlerFunc(http.MethodDelete, "/api/v1/movie/:id", app.deleteMovie)
+	router.HandlerFunc(http.MethodGet, "/api/v1/movies", app.listMovieHandler)
 
 	return router
 }

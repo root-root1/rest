@@ -1,6 +1,7 @@
 package data
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"github.com/lib/pq"
@@ -44,7 +45,11 @@ func (m MovieModel) Insert(movie *Movie) error {
 
 	args := []interface{}{movie.Title, movie.Year, movie.Runtime, pq.Array(movie.Genres)}
 
-	return m.db.QueryRow(query, args...).Scan(&movie.Id, &movie.CreatedAt, &movie.Version)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+
+	defer cancel()
+
+	return m.db.QueryRowContext(ctx, query, args...).Scan(&movie.Id, &movie.CreatedAt, &movie.Version)
 }
 
 func (m MovieModel) Get(id int64) (*Movie, error) {
@@ -58,7 +63,11 @@ func (m MovieModel) Get(id int64) (*Movie, error) {
 	`
 	var movie Movie
 
-	err := m.db.QueryRow(query, id).Scan(
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+
+	defer cancel()
+
+	err := m.db.QueryRowContext(ctx, query, id).Scan(
 		&movie.Id,
 		&movie.CreatedAt,
 		&movie.Title,
@@ -97,7 +106,10 @@ func (m MovieModel) Update(movie *Movie) error {
 		movie.Version,
 	}
 
-	err := m.db.QueryRow(query, args...).Scan(&movie.Version)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	err := m.db.QueryRowContext(ctx, query, args...).Scan(&movie.Version)
 	if err != nil {
 		switch {
 		case errors.Is(err, sql.ErrNoRows):
@@ -110,8 +122,85 @@ func (m MovieModel) Update(movie *Movie) error {
 }
 
 func (m MovieModel) Delete(id int64) error {
+	if id < 1 {
+		return ErrorRecordNotFound
+	}
+
+	query := `
+		delete from movies
+		where id=$1
+	`
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+
+	defer cancel()
+
+	result, err := m.db.ExecContext(ctx, query, id)
+
+	if err != nil {
+		return err
+	}
+
+	affectedRow, err := result.RowsAffected()
+
+	if err != nil {
+		return err
+	}
+
+	if affectedRow == 0 {
+		return ErrorRecordNotFound
+	}
+
 	return nil
 }
+
+func (m MovieModel) GetAll(title string, genres []string, filters Filters) ([]*Movie, error) {
+	query := `
+		select id, created_at, title, year, runtime, genres, version
+		from movies
+		order by id
+    `
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	rows, err := m.db.QueryContext(ctx, query)
+
+	if err != nil {
+		return nil, err
+	}
+
+	defer rows.Close()
+
+	movies := []*Movie{}
+
+	for rows.Next() {
+		var movie Movie
+
+		err := rows.Scan(
+			&movie.Id,
+			&movie.CreatedAt,
+			&movie.Title,
+			&movie.Year,
+			&movie.Runtime,
+			pq.Array(&movie.Genres),
+			&movie.Version,
+		)
+
+		if err != nil {
+			return nil, err
+		}
+		movies = append(movies, &movie)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return movies, nil
+}
+
+// this block of code is for testing
 
 type MockMovieModel struct {
 }
@@ -130,4 +219,8 @@ func (m MockMovieModel) Update(movie *Movie) error {
 
 func (m MockMovieModel) Delete(id int64) error {
 	return nil
+}
+
+func (m MockMovieModel) GetAll(title string, genres []string, filters Filters) ([]*Movie, error) {
+	return nil, nil
 }

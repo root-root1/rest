@@ -175,5 +175,69 @@ func (app *Application) UpdateMovie(w http.ResponseWriter, r *http.Request) {
 }
 
 func (app *Application) deleteMovie(w http.ResponseWriter, r *http.Request) {
+	id, err := app.readIdParam(r)
 
+	if err != nil {
+		app.notFoundResponse(w, r)
+		if err != nil {
+			app.ErrorLog.Println(err)
+		} else {
+			app.ErrorLog.Printf("Id is %d\n", id)
+		}
+
+		return
+	}
+
+	err = app.Models.Movies.Delete(id)
+	if err != nil {
+		switch {
+		case errors.Is(err, data.ErrEditConflict):
+			app.editConflictResponse(w, r)
+		default:
+			app.serverErrorResponse(w, r, err)
+		}
+		return
+	}
+
+	err = app.writeJSON(w, http.StatusOK, envelope{"Movie": fmt.Sprintf("Deleted Movie with id %d", id)}, nil)
+	if err != nil {
+		app.serverErrorResponse(w, r, err)
+	}
+}
+
+func (app *Application) listMovieHandler(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Title  string
+		Genres []string
+		data.Filters
+	}
+
+	v := validator.New()
+
+	qs := r.URL.Query()
+
+	input.Title = app.readString(qs, "title", "")
+	input.Genres = app.readCSV(qs, "genres", []string{})
+
+	input.Filters.Page = app.readINT(qs, "page", 1, v)
+	input.Filters.PageSize = app.readINT(qs, "page_size", 20, v)
+	input.Filters.Sort = app.readString(qs, "sort", "id")
+	input.Filters.SortSafeList = []string{"id", "title", "year", "runtime", "-id", "-title", "-year", "-runtime"}
+
+	if data.ValidateFilter(v, input.Filters); !v.Valid() {
+		app.failedValidationResponse(w, r, v.Errors)
+		return
+	}
+
+	movies, err := app.Models.Movies.GetAll(input.Title, input.Genres, input.Filters)
+
+	if err != nil {
+		app.serverErrorResponse(w, r, err)
+		return
+	}
+
+	err = app.writeJSON(w, http.StatusOK, envelope{"Movies": movies}, nil)
+	if err != nil {
+		app.serverErrorResponse(w, r, err)
+	}
 }
