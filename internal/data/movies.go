@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"github.com/lib/pq"
 	"github.com/root-root1/rest/internal/validator"
 	"time"
@@ -154,30 +155,38 @@ func (m MovieModel) Delete(id int64) error {
 	return nil
 }
 
-func (m MovieModel) GetAll(title string, genres []string, filters Filters) ([]*Movie, error) {
-	query := `
-		select id, created_at, title, year, runtime, genres, version
+func (m MovieModel) GetAll(title string, genres []string, filters Filters) ([]*Movie, Metadata, error) {
+	query := fmt.Sprintf(`
+		select count(*) over(), id, created_at, title, year, runtime, genres, version
 		from movies
-		order by id
-    `
+		where ((to_tsvector('english', title) @@ plainto_tsquery('english', $1)) or $1 = '')
+		and (genres @> $2 or $2 = '{}')
+		order by %s %s, id asc
+		limit $3 offset $4
+    `, filters.sortColumn(), filters.sortDirection())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	rows, err := m.db.QueryContext(ctx, query)
+	args := []interface{}{title, pq.Array(genres), filters.limit(), filters.offset()}
+
+	rows, err := m.db.QueryContext(ctx, query, args...)
 
 	if err != nil {
-		return nil, err
+		return nil, Metadata{}, err
 	}
 
 	defer rows.Close()
 
+	totalRecord := 0
 	movies := []*Movie{}
 
 	for rows.Next() {
+
 		var movie Movie
 
 		err := rows.Scan(
+			&totalRecord,
 			&movie.Id,
 			&movie.CreatedAt,
 			&movie.Title,
@@ -188,16 +197,18 @@ func (m MovieModel) GetAll(title string, genres []string, filters Filters) ([]*M
 		)
 
 		if err != nil {
-			return nil, err
+			return nil, Metadata{}, err
 		}
 		movies = append(movies, &movie)
 	}
 
 	if err = rows.Err(); err != nil {
-		return nil, err
+		return nil, Metadata{}, err
 	}
 
-	return movies, nil
+	metadata := CalculateMetadata(totalRecord, filters.Page, filters.PageSize)
+
+	return movies, metadata, nil
 }
 
 // this block of code is for testing
@@ -221,6 +232,6 @@ func (m MockMovieModel) Delete(id int64) error {
 	return nil
 }
 
-func (m MockMovieModel) GetAll(title string, genres []string, filters Filters) ([]*Movie, error) {
-	return nil, nil
+func (m MockMovieModel) GetAll(title string, genres []string, filters Filters) ([]*Movie, Metadata, error) {
+	return nil, Metadata{}, nil
 }
