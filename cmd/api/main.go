@@ -4,12 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"flag"
-	"fmt"
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 	"github.com/root-root1/rest/internal/data"
-	"log"
-	"net/http"
+	"github.com/root-root1/rest/internal/jsonlog"
 	"os"
 	"time"
 )
@@ -25,38 +23,28 @@ type Config struct {
 		maxIdleConns int
 		maxIdleTime  string
 	}
+
+	Limiter struct {
+		rps    float64
+		bust   int
+		enable bool
+	}
 }
 
 type Application struct {
-	Config     Config
-	InfoLogger *log.Logger
-	ErrorLog   *log.Logger
-	Models     data.Models
-	Version    string
-}
-
-func (app *Application) serve() error {
-	srv := &http.Server{
-		Addr:              fmt.Sprintf(":%d", app.Config.Port),
-		Handler:           app.routes(),
-		IdleTimeout:       30 * time.Second,
-		ReadTimeout:       10 * time.Second,
-		ReadHeaderTimeout: 5 * time.Second,
-		WriteTimeout:      5 * time.Second,
-	}
-
-	app.InfoLogger.Println(fmt.Sprintf("Starting HTTP Server in %s Mode on Port %d", app.Config.Env, app.Config.Port))
-	return srv.ListenAndServe()
+	Config  Config
+	Logger  *jsonlog.Logger
+	Models  data.Models
+	Version string
 }
 
 func main() {
 	err := godotenv.Load()
 
-	infoLog := log.New(os.Stdout, "[INFO] ", log.Ldate|log.Ltime)
-	errorLog := log.New(os.Stdout, "[ERROR] ", log.Ldate|log.Ltime|log.Lshortfile)
+	logger := jsonlog.New(os.Stdout, jsonlog.LevelInfo)
 
 	if err != nil {
-		errorLog.Println("Failed to load .env file")
+		logger.PrintError(err, nil)
 	}
 
 	var cfg Config
@@ -67,37 +55,38 @@ func main() {
 	flag.IntVar(&cfg.db.maxOpenConns, "db-max-open-conns", 15, "PostgreSQL max open Connections")
 	flag.IntVar(&cfg.db.maxIdleConns, "db-max-idle-conns", 15, "PostgreSQL max idle Connections")
 	flag.StringVar(&cfg.db.maxIdleTime, "db-max-idle-time", "15m", "PostgreSQL max Connection Time")
+	flag.Float64Var(&cfg.Limiter.rps, "limiter-rps", 2, "Rate Limiter Maximum Request per second")
+	flag.IntVar(&cfg.Limiter.bust, "limiter-bust", 4, "Rate Limiter Maximum Bust")
+	flag.BoolVar(&cfg.Limiter.enable, "enable", true, "Enable Rate Limiter")
 
 	flag.Parse()
 
 	db, err := openDb(cfg)
-	
+
 	app := &Application{
-		Config:     cfg,
-		InfoLogger: infoLog,
-		ErrorLog:   errorLog,
-		Models:     data.NewModel(db),
-		Version:    version,
+		Config:  cfg,
+		Logger:  logger,
+		Models:  data.NewModel(db),
+		Version: version,
 	}
 
 	if err != nil {
-		app.ErrorLog.Fatal(err)
+		logger.PrintFatal(err, nil)
 	}
 
 	defer func(db *sql.DB) {
 		err := db.Close()
 		if err != nil {
-			app.ErrorLog.Println("Failed To Closing the Database Connection")
+			logger.PrintError(err, nil)
 		}
 	}(db)
 
-	app.InfoLogger.Println("Connection to Database has Done")
+	logger.PrintInfo("Connection to Database has Done", nil)
 
 	err = app.serve()
 
 	if err != nil {
-		app.ErrorLog.Println(err)
-		log.Fatal(err)
+		logger.PrintFatal(err, nil)
 	}
 }
 

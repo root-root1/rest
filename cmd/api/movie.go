@@ -61,9 +61,9 @@ func (app *Application) getMovieById(w http.ResponseWriter, r *http.Request) {
 	if err != nil || id < 1 {
 		app.notFoundResponse(w, r)
 		if err != nil {
-			app.ErrorLog.Println(err)
+			app.LogError(r, err)
 		} else {
-			app.ErrorLog.Printf("Id is %d\n", id)
+			app.LogError(r, fmt.Errorf("Id is %d\n", id))
 		}
 
 		return
@@ -93,9 +93,9 @@ func (app *Application) UpdateMovie(w http.ResponseWriter, r *http.Request) {
 	if err != nil || id < 1 {
 		app.notFoundResponse(w, r)
 		if err != nil {
-			app.ErrorLog.Println(err)
+			app.LogError(r, err)
 		} else {
-			app.ErrorLog.Printf("Id is %d\n", id)
+			app.LogError(r, fmt.Errorf("Id is %d\n", id))
 		}
 
 		return
@@ -180,9 +180,9 @@ func (app *Application) deleteMovie(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		app.notFoundResponse(w, r)
 		if err != nil {
-			app.ErrorLog.Println(err)
+			app.LogError(r, err)
 		} else {
-			app.ErrorLog.Printf("Id is %d\n", id)
+			app.LogError(r, fmt.Errorf("Id is %d\n", id))
 		}
 
 		return
